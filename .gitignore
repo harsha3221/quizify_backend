@@ -28,5 +28,7 @@ coverage/
 *.tmp
 *.swp
 
+
 # Uploads (if any)
 uploads/
+
