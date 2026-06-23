@@ -116,12 +116,13 @@ class Question {
     }
 
     /* ---------------- UPDATE (FIXED 🛠️) ---------------- */
+    /* ---------------- UPDATE (SAFE & OPTIMIZED 🛠️) ---------------- */
     static async updateQuestion(quizId, questionId, questionText, marks, options, imageUrl) {
         const conn = await db.getConnection();
         try {
             await conn.beginTransaction();
 
-            // 1️⃣ Update question (Removed COALESCE to allow nullifying images)
+            // 1️⃣ Update core question details
             await conn.execute(
                 `UPDATE questions
                  SET question_text = ?, 
@@ -131,27 +132,46 @@ class Question {
                 [questionText, marks, imageUrl, questionId, quizId]
             );
 
-            // 2️⃣ Delete old options 
-            // (Standard approach for simple quiz apps to keep data clean)
-            await conn.execute(
-                `DELETE FROM options WHERE question_id = ?`,
-                [questionId]
-            );
-
-            // 3️⃣ Insert new options
             if (options && options.length > 0) {
-                const values = options.map((opt) => [
-                    questionId,
-                    opt.option_text || "",
-                    opt.image_url || null,
-                    opt.is_correct ? 1 : 0,
-                ]);
+                // Collect IDs of options sent by the frontend that already exist
+                const existingOptionIds = options
+                    .map(opt => opt.id)
+                    .filter(id => id !== undefined && id !== null);
 
-                await conn.query(
-                    `INSERT INTO options (question_id, option_text, image_url, is_correct)
-                     VALUES ?`,
-                    [values]
-                );
+                // 2️⃣ Delete only the options that were removed in the UI
+                if (existingOptionIds.length > 0) {
+                    await conn.execute(
+                        `DELETE FROM options 
+                         WHERE question_id = ? AND id NOT IN (${existingOptionIds.map(() => '?').join(',')})`,
+                        [questionId, ...existingOptionIds]
+                    );
+                } else {
+                    // If no IDs match, the teacher replaced all options entirely
+                    await conn.execute(`DELETE FROM options WHERE question_id = ?`, [questionId]);
+                }
+
+                // 3️⃣ Loop options to dynamically UPSERT (Insert new ones, Update old ones text)
+                for (const opt of options) {
+                    if (opt.id) {
+                        // Option exists -> Update text and correctness state, preserving the ID
+                        await conn.execute(
+                            `UPDATE options 
+                             SET option_text = ?, image_url = ?, is_correct = ? 
+                             WHERE id = ? AND question_id = ?`,
+                            [opt.option_text || "", opt.image_url || null, opt.is_correct ? 1 : 0, opt.id, questionId]
+                        );
+                    } else {
+                        // No ID -> This option is newly added to the question
+                        await conn.execute(
+                            `INSERT INTO options (question_id, option_text, image_url, is_correct) 
+                             VALUES (?, ?, ?, ?)`,
+                            [questionId, opt.option_text || "", opt.image_url || null, opt.is_correct ? 1 : 0]
+                        );
+                    }
+                }
+            } else {
+                // If options array is completely empty, wipe them out
+                await conn.execute(`DELETE FROM options WHERE question_id = ?`, [questionId]);
             }
 
             await conn.commit();
