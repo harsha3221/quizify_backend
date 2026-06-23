@@ -4,6 +4,6 @@ const analyticsController = require("../controllers/analyticsController");
 
 // This defines the path AFTER /analytics
 
-router.get("/ai-report/:quizId", analyticsController.getAIAnalytics);
+router.get("/ai-report/:quizId", analyticsController.generateAiQuizReport);
 
 module.exports = router;

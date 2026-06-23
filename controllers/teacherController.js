@@ -2,9 +2,7 @@ const Teacher = require('../model/teacher');
 const Quiz = require("../model/quiz");
 const QuizResult = require('../model/quizResult.js');
 
-/* ============================================================
-   GET TEACHER DASHBOARD
-============================================================ */
+
 exports.getDashboard = async (req, res, next) => {
     try {
         if (!req.session.user || req.session.user.role !== 'teacher') {
@@ -29,9 +27,7 @@ exports.getDashboard = async (req, res, next) => {
 };
 
 
-/* ============================================================
-   CREATE SUBJECT
-============================================================ */
+
 exports.createSubject = async (req, res, next) => {
     try {
         if (!req.session.user || req.session.user.role !== 'teacher') {
@@ -73,9 +69,7 @@ exports.createSubject = async (req, res, next) => {
 };
 
 
-/* ============================================================
-   VIEW QUIZ RESULTS
-============================================================ */
+
 exports.viewQuizResults = async (req, res, next) => {
     try {
         if (!req.session.user || req.session.user.role !== "teacher") {
@@ -90,26 +84,25 @@ exports.viewQuizResults = async (req, res, next) => {
             return res.status(404).json({ message: "Quiz not found" });
         }
 
-        // 1️⃣ Get publish status
+        
         const quiz = await Quiz.getPublishStatus(quizId);
 
-        // 2️⃣ Get students whose results are not yet evaluated
+        
         const pendingStudents = await Quiz.getPendingStudents(quizId);
 
         if (pendingStudents.length > 0) {
             const studentIds = pendingStudents.map(s => s.student_id);
 
-            // 3️⃣ Get evaluation rows
             const rows = await Quiz.getBulkEvaluationRows(quizId, studentIds);
 
-            // 4️⃣ Compute results
+            
             const insertValues = Quiz.computeBulkResults(rows, quizId);
 
-            // 5️⃣ Insert results
+            
             await Quiz.insertBulkResults(insertValues);
         }
 
-        // 6️⃣ Fetch final results
+        
         const results = await QuizResult.getResultsForQuiz(quizId);
 
         res.json({
@@ -123,9 +116,7 @@ exports.viewQuizResults = async (req, res, next) => {
 };
 
 
-/* ============================================================
-   PUBLISH QUIZ RESULTS
-============================================================ */
+
 exports.publishQuizResults = async (req, res, next) => {
     try {
         if (!req.session.user || req.session.user.role !== "teacher") {

@@ -5,9 +5,7 @@ const Student = require('../model/student');
 const crypto = require('crypto');
 const emailService = require('../services/emailService');
 
-/* =========================================================
-   SIGNUP
-========================================================= */
+
 exports.postSignup = async (req, res, next) => {
   try {
     const { name, email, password, confirmPassword, role, department, year } = req.body;
@@ -103,9 +101,7 @@ exports.verifyEmail = async (req, res, next) => {
   }
 };
 
-/* =========================================================
-   RESEND VERIFICATION (FIXED TIMEZONE)
-========================================================= */
+
 exports.resendVerification = async (req, res, next) => {
   try {
     const { email } = req.body;
@@ -132,7 +128,7 @@ exports.resendVerification = async (req, res, next) => {
     const expiryMinutes = Number(process.env.TOKEN_EXPIRY_MINUTES) || 15;
     const expiryDate = new Date(Date.now() + expiryMinutes * 60 * 1000);
 
-    // ✅ Pass Date directly
+    
     await User.updateVerificationToken(user.id, hashedToken, expiryDate);
 
     const verificationLink = `${process.env.BASE_URL}/verify?token=${rawToken}`;
@@ -152,9 +148,7 @@ exports.resendVerification = async (req, res, next) => {
 };
 
 
-/* =========================================================
-   LOGIN
-========================================================= */
+
 exports.postLogin = async (req, res, next) => {
   try {
     const { email, password } = req.body;
@@ -201,14 +195,13 @@ exports.postLogin = async (req, res, next) => {
       };
     }
 
-    // Wrap the response in req.session.save to ensure the cookie is 
-    // written to the DB before the client tries to read it.
+    
     req.session.save((err) => {
       if (err) return next(err);
 
       return res.status(200).json({
         message: "Login successful",
-        user: req.session.user, // ✅ Returns full object for AuthContext hydration
+        user: req.session.user,
       });
     });
   } catch (err) {
@@ -216,10 +209,6 @@ exports.postLogin = async (req, res, next) => {
   }
 };
 
-
-/* =========================================================
-   LOGOUT
-========================================================= */
 exports.logout = (req, res, next) => {
   req.session.destroy(() => {
     res.clearCookie("connect.sid");
