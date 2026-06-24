@@ -3,12 +3,10 @@
 const Student = require('../model/student');
 const Subject = require('../model/subject');
 const Quiz = require('../model/quiz');
-// const db = require('../config/database');
 const Question = require('../model/question');
 const StudentQuizAttempt = require('../model/studentQuizAttempt');
 const QuizResult = require('../model/quizResult.js');
 const StudentAnswer = require('../model/studentAnswer');
-
 
 function shuffleArray(arr) {
   const a = [...arr];
@@ -18,8 +16,6 @@ function shuffleArray(arr) {
   }
   return a;
 }
-
-
 
 async function ensureStudentAndEnrollment(studentId, quizId) {
   const quiz = await Quiz.getQuizWithSubjectAndTeacher(quizId);
@@ -34,8 +30,6 @@ async function ensureStudentAndEnrollment(studentId, quizId) {
 
   return { quiz };
 }
-
-
 
 exports.createQuizAttempt = async (req, res, next) => {
   try {
@@ -59,8 +53,6 @@ exports.createQuizAttempt = async (req, res, next) => {
   }
 };
 
-
-
 exports.getRegisteredCourses = async (req, res, next) => {
   try {
     if (!req.session.user || req.session.user.role !== 'student')
@@ -75,7 +67,7 @@ exports.getRegisteredCourses = async (req, res, next) => {
     const [studentRows] = await Student.findByUserId(req.session.user.id);
 
     res.status(200).json({
-      student: studentRows[0],   // 👈 ADD THIS
+      student: studentRows[0],
       availableSubjects,
       joinedSubjects
     });
@@ -84,7 +76,6 @@ exports.getRegisteredCourses = async (req, res, next) => {
     next(err);
   }
 };
-
 
 exports.getAvailableCourses = async (req, res, next) => {
   try {
@@ -102,8 +93,6 @@ exports.getAvailableCourses = async (req, res, next) => {
     next(err);
   }
 };
-
-
 
 exports.joinSubject = async (req, res, next) => {
   try {
@@ -129,8 +118,6 @@ exports.joinSubject = async (req, res, next) => {
     next(err);
   }
 };
-
-
 
 exports.getSubjectQuizzes = async (req, res, next) => {
   try {
@@ -170,7 +157,6 @@ exports.getSubjectQuizzes = async (req, res, next) => {
   }
 };
 
-
 exports.startQuizForStudent = async (req, res, next) => {
   try {
     if (!req.session.user || req.session.user.role !== 'student')
@@ -185,15 +171,9 @@ exports.startQuizForStudent = async (req, res, next) => {
     if (attempt.submitted)
       return res.status(403).json({ message: "Quiz already submitted" });
 
-    // This now returns an array of questions, each with its own .options array
     const questions = await Question.getByQuizId(quizId);
     console.log("===== DEBUG QUESTIONS =====");
     console.log("Total Questions:", questions.length);
-
-    questions.forEach((q, i) => {
-      console.log(`Q${i + 1}:`, q.question_text);
-      console.log("Options:", q.options);
-    });
 
     // Shuffle questions and their internal options
     const randomizedQuestions = shuffleArray(questions).map(q => ({
@@ -229,7 +209,6 @@ exports.saveStudentAnswer = async (req, res, next) => {
 
     const { quiz } = await ensureStudentAndEnrollment(studentId, quizId);
 
-    // 1. Get the student's specific attempt to find when they started
     const attempt = await StudentQuizAttempt.createIfNotExists(studentId, quizId);
 
     if (attempt.submitted) {
@@ -238,19 +217,15 @@ exports.saveStudentAnswer = async (req, res, next) => {
 
     const now = new Date();
 
-    // 2. Prevent saving before the quiz officially opens
     if (quiz.start_time && new Date(quiz.start_time) > now) {
       return res.status(403).json({ message: "Quiz has not started yet" });
     }
 
-    // 3. Logic Change: Instead of checking the global end_time, 
-    // check if their personal duration has expired.
     if (attempt.started_at && quiz.duration_minutes) {
       const startTime = new Date(attempt.started_at).getTime();
       const durationMs = quiz.duration_minutes * 60 * 1000;
       const personalDeadline = startTime + durationMs;
 
-      // Add a small grace period (e.g., 5-10 seconds) for network latency
       if (now.getTime() > personalDeadline + 5000) {
         return res.status(403).json({ message: "Your personal quiz time has expired" });
       }
@@ -258,7 +233,8 @@ exports.saveStudentAnswer = async (req, res, next) => {
 
     const ids = option_ids || (option_id ? [option_id] : []);
 
-    await StudentAnswer.replaceAnswers(
+    // 🛠️ FIX 1: Using optimized delta bulk saver instead of delete-all routine
+    await StudentAnswer.saveAnswersBulk(
       studentId,
       quizId,
       question_id,
@@ -272,7 +248,6 @@ exports.saveStudentAnswer = async (req, res, next) => {
   }
 };
 
-
 exports.submitStudentQuiz = async (req, res, next) => {
   try {
     if (!req.session.user || req.session.user.role !== 'student')
@@ -281,6 +256,16 @@ exports.submitStudentQuiz = async (req, res, next) => {
     const studentId = req.session.user.student_id;
     const quizId = req.params.quizId;
 
+    // 🛠️ FIX 4: Atomic Mutation Gatekeeper prevents double-submission processing
+    const successfullySubmitted = await StudentQuizAttempt.submitAttemptAtomic(studentId, quizId);
+
+    if (!successfullySubmitted) {
+      return res.status(400).json({
+        message: "Quiz already submitted or processing request in progress."
+      });
+    }
+
+    // Run grading logic now that the submission is isolated safely
     const { total, obtained } = await QuizResult.evaluateAndSubmit(studentId, quizId);
 
     res.json({
@@ -293,7 +278,6 @@ exports.submitStudentQuiz = async (req, res, next) => {
     next(err);
   }
 };
-
 
 exports.getQuizSummary = async (req, res, next) => {
   try {
@@ -319,7 +303,6 @@ exports.getQuizSummary = async (req, res, next) => {
     next(err);
   }
 };
-
 
 exports.getStudentQuizResult = async (req, res, next) => {
   try {
