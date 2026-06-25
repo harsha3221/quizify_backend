@@ -63,7 +63,6 @@ exports.getRegisteredCourses = async (req, res, next) => {
     const [availableSubjects] = await Subject.getAllAvailable();
     const [joinedSubjects] = await Student.getJoinedSubjects(studentId);
 
-    // fetch student profile (roll + year)
     const [studentRows] = await Student.findByUserId(req.session.user.id);
 
     res.status(200).json({
@@ -175,7 +174,6 @@ exports.startQuizForStudent = async (req, res, next) => {
     console.log("===== DEBUG QUESTIONS =====");
     console.log("Total Questions:", questions.length);
 
-    // Shuffle questions and their internal options
     const randomizedQuestions = shuffleArray(questions).map(q => ({
       ...q,
       options: shuffleArray(q.options)
@@ -208,14 +206,17 @@ exports.saveStudentAnswer = async (req, res, next) => {
     const { question_id, option_id, option_ids } = req.body;
 
     const { quiz } = await ensureStudentAndEnrollment(studentId, quizId);
-
     const attempt = await StudentQuizAttempt.createIfNotExists(studentId, quizId);
 
     if (attempt.submitted) {
       return res.status(403).json({ message: "Quiz already submitted" });
     }
 
-    const now = new Date();
+    // 🛠️ TIMEZONE FIX FOR VALIDATION LOOKUPS
+    // Format the current validation timestamp according to the working environment timezone
+    const tz = process.env.NODE_ENV === 'production' ? 'UTC' : Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const localizedNowStr = new Date().toLocaleString("en-US", { timeZone: tz });
+    const now = new Date(localizedNowStr);
 
     if (quiz.start_time && new Date(quiz.start_time) > now) {
       return res.status(403).json({ message: "Quiz has not started yet" });
@@ -233,7 +234,6 @@ exports.saveStudentAnswer = async (req, res, next) => {
 
     const ids = option_ids || (option_id ? [option_id] : []);
 
-    // 🛠️ FIX 1: Using optimized delta bulk saver instead of delete-all routine
     await StudentAnswer.saveAnswersBulk(
       studentId,
       quizId,
@@ -256,7 +256,6 @@ exports.submitStudentQuiz = async (req, res, next) => {
     const studentId = req.session.user.student_id;
     const quizId = req.params.quizId;
 
-    // 🛠️ FIX 4: Atomic Mutation Gatekeeper prevents double-submission processing
     const successfullySubmitted = await StudentQuizAttempt.submitAttemptAtomic(studentId, quizId);
 
     if (!successfullySubmitted) {
@@ -265,7 +264,6 @@ exports.submitStudentQuiz = async (req, res, next) => {
       });
     }
 
-    // Run grading logic now that the submission is isolated safely
     const { total, obtained } = await QuizResult.evaluateAndSubmit(studentId, quizId);
 
     res.json({

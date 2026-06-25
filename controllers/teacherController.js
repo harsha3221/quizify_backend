@@ -1,7 +1,7 @@
+// controllers/teacherController.js
 const Teacher = require('../model/teacher');
-const Quiz = require("../model/quiz");
+const Quiz = require("../model/quiz"); // Modified path to match local directory patterns if required
 const QuizResult = require('../model/quizResult.js');
-
 
 exports.getDashboard = async (req, res, next) => {
     try {
@@ -10,7 +10,6 @@ exports.getDashboard = async (req, res, next) => {
         }
 
         const teacherId = req.session.user.teacher_id;
-
         const [subjects] = await Teacher.getSubjects(teacherId);
 
         return res.status(200).json({
@@ -25,8 +24,6 @@ exports.getDashboard = async (req, res, next) => {
         next(err);
     }
 };
-
-
 
 exports.createSubject = async (req, res, next) => {
     try {
@@ -68,8 +65,6 @@ exports.createSubject = async (req, res, next) => {
     }
 };
 
-
-
 exports.viewQuizResults = async (req, res, next) => {
     try {
         if (!req.session.user || req.session.user.role !== "teacher") {
@@ -84,25 +79,25 @@ exports.viewQuizResults = async (req, res, next) => {
             return res.status(404).json({ message: "Quiz not found" });
         }
 
-        
         const quiz = await Quiz.getPublishStatus(quizId);
-
-        
         const pendingStudents = await Quiz.getPendingStudents(quizId);
 
-        if (pendingStudents.length > 0) {
+        // Enforce strong safety parameters before sending arrays downstream to database raw executors
+        if (pendingStudents && pendingStudents.length > 0) {
             const studentIds = pendingStudents.map(s => s.student_id);
 
             const rows = await Quiz.getBulkEvaluationRows(quizId, studentIds);
 
-            
-            const insertValues = Quiz.computeBulkResults(rows, quizId);
+            // Defend against unlogged empty evaluation arrays
+            if (rows && rows.length > 0) {
+                const insertValues = Quiz.computeBulkResults(rows, quizId);
 
-            
-            await Quiz.insertBulkResults(insertValues);
+                if (insertValues && insertValues.length > 0) {
+                    await Quiz.insertBulkResults(insertValues);
+                }
+            }
         }
 
-        
         const results = await QuizResult.getResultsForQuiz(quizId);
 
         res.json({
@@ -114,8 +109,6 @@ exports.viewQuizResults = async (req, res, next) => {
         next(err);
     }
 };
-
-
 
 exports.publishQuizResults = async (req, res, next) => {
     try {

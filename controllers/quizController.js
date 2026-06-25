@@ -1,3 +1,4 @@
+// controllers/quizController.js
 const Quiz = require('../model/quiz');
 const Teacher = require('../model/teacher');
 const Question = require("../model/question");
@@ -6,7 +7,7 @@ const fs = require("fs");
 const cloudinary = require('../config/cloudinary');
 const path = require("path");
 const db = require('../config/database');
-//this is the helper function to deal with the unwanted access ,can be removed 
+
 async function ensureQuizBelongsToTeacher(quizId, userId) {
     const [teacherRows] = await Teacher.findByUserId(userId);
     if (teacherRows.length === 0) {
@@ -26,6 +27,7 @@ async function ensureQuizBelongsToTeacher(quizId, userId) {
 
     return { teacherId, quiz };
 }
+
 exports.getQuizQuestions = async (req, res, next) => {
     try {
         if (!req.session.user || req.session.user.role !== "teacher") {
@@ -36,13 +38,10 @@ exports.getQuizQuestions = async (req, res, next) => {
         const userId = req.session.user.id;
 
         await ensureQuizBelongsToTeacher(quizId, userId);
-
         const rows = await Question.getByQuizId(quizId);
 
-        // Map through rows to handle JSON parsing (required by some MySQL drivers)
         const questions = rows.map(q => ({
             ...q,
-            // If rows[i].options comes back as a string, parse it; otherwise use as is.
             options: typeof q.options === 'string' ? JSON.parse(q.options) : (q.options || [])
         }));
 
@@ -57,12 +56,10 @@ exports.addQuizQuestion = async (req, res, next) => {
         const { question_text, marks, options, image_url } = req.body;
         const { quizId } = req.params;
 
-        // Validation
         if (!question_text || !options || options.length < 2) {
             return res.status(400).json({ message: "Invalid data" });
         }
 
-        // Save to DB (options already have URLs from the frontend)
         const { questionId } = await Question.createWithOptions(
             quizId,
             question_text,
@@ -77,9 +74,23 @@ exports.addQuizQuestion = async (req, res, next) => {
     }
 };
 
-// Helper to convert JS Date to MySQL DATETIME format: YYYY-MM-DD HH:MM:SS
+// 🛠️ TIMEZONE-AWARE DYNAMIC HELPER
 const toMySQLDateTime = (date) => {
-    return date.toISOString().slice(0, 19).replace('T', ' ');
+    const tz = process.env.NODE_ENV === 'production' ? 'UTC' : Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: 'numeric', minute: '2-digit', second: '2-digit',
+        hour12: false
+    });
+
+    const parts = formatter.formatToParts(date).reduce((acc, part) => {
+        acc[part.type] = part.value;
+        return acc;
+    }, {});
+
+    return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
 };
 
 exports.createQuiz = async (req, res, next) => {
@@ -120,7 +131,6 @@ exports.createQuiz = async (req, res, next) => {
 
         const teacherId = teacherRows[0].teacher_id;
 
-        // ✅ FIX 1: Format dates for the overlap check
         const overlappingQuizzes = await Quiz.checkOverlap(
             subject_id,
             teacherId,
@@ -134,7 +144,6 @@ exports.createQuiz = async (req, res, next) => {
             });
         }
 
-        // ✅ FIX 2: Format dates for the actual insertion
         const result = await Quiz.createQuiz(
             subject_id,
             teacherId,
@@ -154,7 +163,7 @@ exports.createQuiz = async (req, res, next) => {
         next(err);
     }
 };
-// ✅ Get all quizzes for the logged-in teacher
+
 exports.getTeacherQuizzes = async (req, res, next) => {
     try {
         if (!req.session.user || req.session.user.role !== 'teacher') {
@@ -175,16 +184,14 @@ exports.getTeacherQuizzes = async (req, res, next) => {
         next(err);
     }
 };
+
 exports.getQuizzesBySubjectForTeacher = async (req, res, next) => {
     try {
-        // 1. Ensure logged-in teacher
         if (!req.session.user || req.session.user.role !== 'teacher') {
             return res.status(403).json({ message: 'Unauthorized access' });
         }
 
         const userId = req.session.user.id;
-
-        // 2. Get teacher_id from user
         const [teacherRows] = await Teacher.findByUserId(userId);
         if (teacherRows.length === 0) {
             return res.status(404).json({ message: 'Teacher not found' });
@@ -192,11 +199,8 @@ exports.getQuizzesBySubjectForTeacher = async (req, res, next) => {
 
         const teacherId = teacherRows[0].teacher_id;
         const subjectId = req.params.subjectId;
-
-        // 3. Fetch quizzes for this subject + teacher
         const quizzes = await Quiz.getQuizzesBySubjectAndTeacher(subjectId, teacherId);
 
-        // 4. Respond with JSON
         res.status(200).json({
             subjectName: quizzes[0]?.subject_name || 'Subject',
             quizzes,
@@ -206,7 +210,6 @@ exports.getQuizzesBySubjectForTeacher = async (req, res, next) => {
     }
 };
 
-// ✅ Get single quiz details
 exports.getQuizById = async (req, res, next) => {
     try {
         const quizId = req.params.id;
@@ -221,7 +224,6 @@ exports.getQuizById = async (req, res, next) => {
         next(err);
     }
 };
-
 
 exports.updateQuizStatus = async (req, res, next) => {
     try {
@@ -243,7 +245,6 @@ exports.updateQuizStatus = async (req, res, next) => {
     }
 };
 
-
 exports.deleteQuizQuestion = async (req, res, next) => {
     try {
         if (!req.session.user || req.session.user.role !== "teacher") {
@@ -261,7 +262,6 @@ exports.deleteQuizQuestion = async (req, res, next) => {
             if (row.option_image) imagePaths.add(row.option_image);
         });
 
-
         for (const imgUrl of imagePaths) {
             await deleteFromCloudinary(imgUrl);
         }
@@ -272,6 +272,7 @@ exports.deleteQuizQuestion = async (req, res, next) => {
         next(err);
     }
 };
+
 exports.updateQuestion = async (req, res, next) => {
     try {
         if (!req.session.user || req.session.user.role !== "teacher") {
@@ -282,7 +283,6 @@ exports.updateQuestion = async (req, res, next) => {
         const { question_text, marks, options, image_url } = req.body;
 
         await ensureQuizBelongsToTeacher(quizId, req.session.user.id);
-
 
         await Question.updateQuestion(
             quizId,
@@ -298,6 +298,7 @@ exports.updateQuestion = async (req, res, next) => {
         next(err);
     }
 };
+
 exports.deleteQuiz = async (req, res, next) => {
     try {
         if (!req.session.user || req.session.user.role !== "teacher") {
@@ -307,11 +308,8 @@ exports.deleteQuiz = async (req, res, next) => {
         const quizId = req.params.quizId;
         const userId = req.session.user.id;
 
-
         const { teacherId, quiz } = await ensureQuizBelongsToTeacher(quizId, userId);
-
         const now = new Date();
-
 
         if (quiz.start_time && new Date(quiz.start_time) <= now) {
             return res.status(400).json({
@@ -319,17 +317,12 @@ exports.deleteQuiz = async (req, res, next) => {
             });
         }
 
-
         await Quiz.deleteQuiz(quizId, teacherId);
-
         res.status(200).json({ message: "Quiz deleted successfully" });
-
     } catch (err) {
         next(err);
     }
 };
-
-
 
 exports.getUploadSignature = async (req, res, next) => {
     try {
@@ -338,7 +331,6 @@ exports.getUploadSignature = async (req, res, next) => {
         const timestamp = Math.round(new Date().getTime() / 1000);
         const folder = req.query.folder || 'quiz_uploads';
 
-        // Generate signature using API Secret (staying safe on server)
         const signature = cloudinary.utils.api_sign_request(
             { timestamp, folder },
             process.env.CLOUDINARY_API_SECRET
