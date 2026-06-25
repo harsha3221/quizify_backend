@@ -256,6 +256,21 @@ exports.submitStudentQuiz = async (req, res, next) => {
     const studentId = req.session.user.student_id;
     const quizId = req.params.quizId;
 
+    const timing = await StudentQuizAttempt.getAttemptTiming(studentId, quizId);
+
+    if (timing) {
+      const startTime = new Date(timing.started_at).getTime();
+      const allowedDurationMs = timing.duration_minutes * 60 * 1000;
+      const absoluteDeadline = startTime + allowedDurationMs + 30000; // 30-second grace period
+
+      if (Date.now() > absoluteDeadline) {
+        await StudentQuizAttempt.forceTimeoutSubmit(studentId, quizId);
+        return res.status(403).json({
+          message: "Submission Rejected: The allotted time for this quiz has expired."
+        });
+      }
+    }
+
     const successfullySubmitted = await StudentQuizAttempt.submitAttemptAtomic(studentId, quizId);
 
     if (!successfullySubmitted) {

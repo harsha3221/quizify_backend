@@ -80,6 +80,26 @@ class StudentQuizAttempt {
             [studentId, quizId]
         );
     }
+    static async getAttemptTiming(studentId, quizId) {
+        const [rows] = await db.execute(
+            `SELECT sqa.started_at, q.duration_minutes 
+       FROM student_quiz_attempts sqa
+       JOIN quizzes q ON sqa.quiz_id = q.id
+       WHERE sqa.quiz_id = ? AND sqa.student_id = ?`,
+            [quizId, studentId]
+        );
+        return rows.length > 0 ? rows[0] : null;
+    }
+
+    static async forceTimeoutSubmit(studentId, quizId) {
+        await db.execute(
+            `UPDATE student_quiz_attempts 
+       SET submitted = 1, submitted_at = NOW() 
+       WHERE quiz_id = ? AND student_id = ?`,
+            [quizId, studentId]
+        );
+    }
+
 }
 
 module.exports = StudentQuizAttempt;
