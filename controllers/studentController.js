@@ -19,14 +19,10 @@ function shuffleArray(arr) {
 
 async function ensureStudentAndEnrollment(studentId, quizId) {
   const quiz = await Quiz.getQuizWithSubjectAndTeacher(quizId);
-
-  if (!quiz)
-    throw { code: 404, message: "Quiz not found" };
+  if (!quiz) throw { code: 404, message: "Quiz not found" };
 
   const enrolled = await Student.isEnrolled(studentId, quiz.subject_id);
-
-  if (!enrolled)
-    throw { code: 403, message: "Student not enrolled in this subject" };
+  if (!enrolled) throw { code: 403, message: "Student not enrolled in this subject" };
 
   return { quiz };
 }
@@ -41,13 +37,8 @@ exports.createQuizAttempt = async (req, res, next) => {
 
     await ensureStudentAndEnrollment(studentId, quizId);
 
-    const attempt = await StudentQuizAttempt.createIfNotExists(
-      studentId,
-      quizId
-    );
-
+    const { attempt } = await StudentQuizAttempt.findOrCreateAttemptAtomic(studentId, quizId);
     res.json({ message: "Attempt created", attempt });
-
   } catch (err) {
     next(err);
   }
@@ -59,10 +50,8 @@ exports.getRegisteredCourses = async (req, res, next) => {
       return res.status(403).json({ message: 'Unauthorized access' });
 
     const studentId = req.session.user.student_id;
-
     const [availableSubjects] = await Subject.getAllAvailable();
     const [joinedSubjects] = await Student.getJoinedSubjects(studentId);
-
     const [studentRows] = await Student.findByUserId(req.session.user.id);
 
     res.status(200).json({
@@ -70,7 +59,6 @@ exports.getRegisteredCourses = async (req, res, next) => {
       availableSubjects,
       joinedSubjects
     });
-
   } catch (err) {
     next(err);
   }
@@ -82,12 +70,10 @@ exports.getAvailableCourses = async (req, res, next) => {
       return res.status(403).json({ message: 'Unauthorized access' });
 
     const studentId = req.session.user.student_id;
-
     const [availableSubjects] = await Subject.getAllAvailable();
     const [joinedSubjects] = await Student.getJoinedSubjects(studentId);
 
     res.status(200).json({ availableSubjects, joinedSubjects });
-
   } catch (err) {
     next(err);
   }
@@ -112,7 +98,6 @@ exports.joinSubject = async (req, res, next) => {
       message: 'Successfully joined course',
       subject: subjectDetails
     });
-
   } catch (err) {
     next(err);
   }
@@ -125,11 +110,7 @@ exports.getSubjectQuizzes = async (req, res, next) => {
 
     const studentId = req.session.user.student_id;
     const subjectId = Number(req.params.subjectId);
-
-    const rows = await Quiz.getQuizzesForStudentSubject(
-      subjectId,
-      studentId
-    );
+    const rows = await Quiz.getQuizzesForStudentSubject(subjectId, studentId);
 
     res.status(200).json({
       quizzes: rows.map(r => ({
@@ -141,16 +122,12 @@ exports.getSubjectQuizzes = async (req, res, next) => {
         end_time: r.end_time,
         status: r.status || "draft",
         results_published: !!r.results_published,
-        teacher: {
-          id: r.teacher_id,
-          name: r.teacher_name
-        },
+        teacher: { id: r.teacher_id, name: r.teacher_name },
         created_at: r.created_at,
         attempted: !!r.attempted,
         submitted: !!r.submitted
       }))
     });
-
   } catch (err) {
     next(err);
   }
@@ -164,33 +141,12 @@ exports.startQuizForStudent = async (req, res, next) => {
     const studentId = req.session.user.student_id;
     const quizId = req.params.quizId;
 
-    const { quiz } = await ensureStudentAndEnrollment(studentId, quizId);
-
-    const attempt = await StudentQuizAttempt.createIfNotExists(studentId, quizId);
-    if (attempt.submitted)
-      return res.status(403).json({ message: "Quiz already submitted" });
-
-    const questions = await Question.getByQuizId(quizId);
-    console.log("===== DEBUG QUESTIONS =====");
-    console.log("Total Questions:", questions.length);
-
-    const randomizedQuestions = shuffleArray(questions).map(q => ({
-      ...q,
-      options: shuffleArray(q.options)
-    }));
-
-    const answers = await StudentAnswer.getAnswers(studentId, quizId);
+    const { isNew, attempt } = await StudentQuizAttempt.findOrCreateAttemptAtomic(studentId, quizId);
 
     res.json({
-      quiz,
-      questions: randomizedQuestions,
-      existingAnswers: answers,
-      attempt: {
-        started_at: attempt.started_at,
-        submitted: attempt.submitted
-      }
+      message: isNew ? "Quiz started successfully." : "Quiz session resumed.",
+      attempt
     });
-
   } catch (err) {
     next(err);
   }
@@ -206,14 +162,12 @@ exports.saveStudentAnswer = async (req, res, next) => {
     const { question_id, option_id, option_ids } = req.body;
 
     const { quiz } = await ensureStudentAndEnrollment(studentId, quizId);
-    const attempt = await StudentQuizAttempt.createIfNotExists(studentId, quizId);
+    const { attempt } = await StudentQuizAttempt.findOrCreateAttemptAtomic(studentId, quizId);
 
     if (attempt.submitted) {
       return res.status(403).json({ message: "Quiz already submitted" });
     }
 
-    // 🛠️ TIMEZONE FIX FOR VALIDATION LOOKUPS
-    // Format the current validation timestamp according to the working environment timezone
     const tz = process.env.NODE_ENV === 'production' ? 'UTC' : Intl.DateTimeFormat().resolvedOptions().timeZone;
     const localizedNowStr = new Date().toLocaleString("en-US", { timeZone: tz });
     const now = new Date(localizedNowStr);
@@ -233,16 +187,9 @@ exports.saveStudentAnswer = async (req, res, next) => {
     }
 
     const ids = option_ids || (option_id ? [option_id] : []);
-
-    await StudentAnswer.saveAnswersBulk(
-      studentId,
-      quizId,
-      question_id,
-      ids
-    );
+    await StudentAnswer.saveAnswersBulk(studentId, quizId, question_id, ids);
 
     res.json({ message: "Saved" });
-
   } catch (err) {
     next(err);
   }
@@ -261,7 +208,7 @@ exports.submitStudentQuiz = async (req, res, next) => {
     if (timing) {
       const startTime = new Date(timing.started_at).getTime();
       const allowedDurationMs = timing.duration_minutes * 60 * 1000;
-      const absoluteDeadline = startTime + allowedDurationMs + 30000; // 30-second grace period
+      const absoluteDeadline = startTime + allowedDurationMs + 30000;
 
       if (Date.now() > absoluteDeadline) {
         await StudentQuizAttempt.forceTimeoutSubmit(studentId, quizId);
@@ -286,7 +233,6 @@ exports.submitStudentQuiz = async (req, res, next) => {
       total_marks: total,
       obtained_marks: obtained
     });
-
   } catch (err) {
     next(err);
   }
@@ -311,7 +257,6 @@ exports.getQuizSummary = async (req, res, next) => {
         end_time: quiz.end_time
       }
     });
-
   } catch (err) {
     next(err);
   }
@@ -331,16 +276,11 @@ exports.getStudentQuizResult = async (req, res, next) => {
     if (!published)
       return res.status(403).json({ message: "Results not published yet" });
 
-    const result = await QuizResult.getStudentResult(
-      studentId,
-      quizId
-    );
-
+    const result = await QuizResult.getStudentResult(studentId, quizId);
     if (!result)
       return res.status(404).json({ message: "Result not found" });
 
     res.json({ result });
-
   } catch (err) {
     next(err);
   }
