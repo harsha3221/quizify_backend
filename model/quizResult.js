@@ -4,8 +4,8 @@ class QuizResult {
     static async getSubmittedStudents(quizId) {
         const [rows] = await db.execute(
             `SELECT student_id
-       FROM student_quiz_attempts
-       WHERE quiz_id = ? AND submitted = 1`,
+             FROM student_quiz_attempts
+             WHERE quiz_id = ? AND submitted = 1`,
             [quizId]
         );
         return rows;
@@ -14,7 +14,7 @@ class QuizResult {
     static async exists(studentId, quizId) {
         const [[row]] = await db.execute(
             `SELECT id FROM quiz_results
-       WHERE student_id = ? AND quiz_id = ?`,
+             WHERE student_id = ? AND quiz_id = ?`,
             [studentId, quizId]
         );
         return !!row;
@@ -23,16 +23,16 @@ class QuizResult {
     static async getEvaluationData(studentId, quizId) {
         const [rows] = await db.execute(
             `SELECT q.id AS question_id,
-              q.marks,
-              o.id AS option_id,
-              o.is_correct,
-              a.option_id AS answered_option
-       FROM questions q
-       JOIN options o ON o.question_id = q.id
-       LEFT JOIN student_quiz_answers a
-              ON a.question_id = q.id
-             AND a.student_id = ?
-       WHERE q.quiz_id = ?`,
+                    q.marks,
+                    o.id AS option_id,
+                    o.is_correct,
+                    a.option_id AS answered_option
+             FROM questions q
+             JOIN options o ON o.question_id = q.id
+             LEFT JOIN student_quiz_answers a
+                    ON a.question_id = q.id
+                   AND a.student_id = ?
+             WHERE q.quiz_id = ?`,
             [studentId, quizId]
         );
         return rows;
@@ -41,8 +41,8 @@ class QuizResult {
     static async insert(studentId, quizId, total, obtained) {
         return db.execute(
             `INSERT INTO quiz_results
-       (student_id, quiz_id, total_marks, obtained_marks)
-       VALUES (?, ?, ?, ?)`,
+             (student_id, quiz_id, total_marks, obtained_marks)
+             VALUES (?, ?, ?, ?)`,
             [studentId, quizId, total, obtained]
         );
     }
@@ -68,6 +68,7 @@ class QuizResult {
         );
         return rows;
     }
+
     static async upsertResultWithTransaction(conn, studentId, quizId, total, obtained) {
         const [existing] = await conn.execute(
             `SELECT id FROM quiz_results WHERE student_id = ? AND quiz_id = ?`,
@@ -91,11 +92,13 @@ class QuizResult {
     }
 
     static async evaluateAndSubmit(studentId, quizId) {
-        const conn = await db.getConnection();
+        // Safe access to the raw pool instance to draw connection
+        const pool = db.db;
+        const conn = await pool.promise().getConnection();
+
         try {
             await conn.beginTransaction();
 
-            // Fetch all questions, their correct options, and student selections
             const [rows] = await conn.execute(
                 `SELECT q.id AS question_id, q.marks, 
                         o.id AS option_id, o.is_correct,
@@ -119,12 +122,10 @@ class QuizResult {
                     };
                 }
 
-                // If this option is marked correct in DB, add to correct set
                 if (r.is_correct) {
                     byQuestion[r.question_id].correctSet.add(r.option_id);
                 }
 
-                // If the student actually selected this specific option row
                 if (r.answered_option && r.answered_option === r.option_id) {
                     byQuestion[r.question_id].selectedSet.add(r.answered_option);
                 }
@@ -137,7 +138,6 @@ class QuizResult {
                 const q = byQuestion[qid];
                 totalMarks += q.marks;
 
-                // LOGIC: Sets must be identical for the marks to be awarded
                 const isCorrect =
                     q.correctSet.size === q.selectedSet.size &&
                     [...q.correctSet].every(id => q.selectedSet.has(id));
@@ -147,13 +147,11 @@ class QuizResult {
                 }
             }
 
-            // Save to quiz_results table
             await this.upsertResultWithTransaction(conn, studentId, quizId, totalMarks, obtainedMarks);
 
-            // Mark attempt as submitted
             await conn.execute(
                 `UPDATE student_quiz_attempts
-                 SET submitted = 1
+                 SET submitted = 1, submitted_at = NOW()
                  WHERE student_id = ? AND quiz_id = ?`,
                 [studentId, quizId]
             );
@@ -167,14 +165,14 @@ class QuizResult {
             conn.release();
         }
     }
+
     static async getStudentResult(studentId, quizId) {
         const [rows] = await db.execute(
             `SELECT obtained_marks, total_marks, evaluated_at
-     FROM quiz_results
-     WHERE student_id = ? AND quiz_id = ?`,
+             FROM quiz_results
+             WHERE student_id = ? AND quiz_id = ?`,
             [studentId, quizId]
         );
-
         return rows[0];
     }
 }
