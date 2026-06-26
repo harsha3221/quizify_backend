@@ -2,6 +2,10 @@ require("dotenv").config();
 const express = require("express");
 const app = express();
 
+// 🚀 CRITICAL FOR RATE LIMITING & SECURE COOKIES IN DEPLOYMENT
+// Tells Express to trust upstream reverse proxies (Render, AWS, Heroku, etc.)
+app.set("trust proxy", 1);
+
 const db = require("./config/database");
 const authRoute = require("./routes/auth");
 const analyticsRoutes = require("./routes/analytics");
@@ -26,7 +30,7 @@ app.use(
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.urlencoded({ extended: true }));
+
 const isProduction = process.env.NODE_ENV === 'production';
 
 /* ---------------- SESSION ---------------- */
@@ -34,16 +38,17 @@ const sessionStore = new MySQLStore({
   clearExpired: true,
   checkExpirationInterval: 900000,
 }, db.db);
+
 const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET || "your_secret_here",
   resave: false,
   saveUninitialized: false,
   store: sessionStore,
-  proxy: true, // Required for many hosting providers (Reverse Proxies)
+  proxy: true, // Working in tandem with app.set("trust proxy", 1)
   cookie: {
     maxAge: 1000 * 60 * 60, // 1 hour
     httpOnly: true,
-    // CONDITIONAL SETTINGS:
+    // CONDITIONAL SETTINGS (Safe for local HTTP and production HTTPS):
     secure: isProduction,
     sameSite: isProduction ? 'none' : 'lax',
   },
@@ -58,7 +63,6 @@ const csrfProtection = csrf({ cookie: false });
 app.use(authRoute);
 app.use("/analytics", analyticsRoutes);
 
-
 app.get("/csrf-token", csrfProtection, (req, res) => {
   res.json({ csrfToken: req.csrfToken() });
 });
@@ -69,10 +73,9 @@ app.get("/me", csrfProtection, (req, res) => {
 
   res.json({
     user: req.session.user,
-    csrfToken: req.csrfToken(), // ✅ NOW VALID
+    csrfToken: req.csrfToken(),
   });
 });
-
 
 /* ✅ APPLY CSRF ONLY TO MUTATING ROUTES */
 app.use("/quiz", csrfProtection, quizRoutes);
