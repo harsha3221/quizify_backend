@@ -1,9 +1,10 @@
 const express = require("express");
 const router = express.Router();
 const analyticsController = require("../controllers/analyticsController");
+const { aiLimiter } = require("../middleware/rateLimiter");
 
 // This defines the path AFTER /analytics
 
-router.get("/ai-report/:quizId", analyticsController.generateAiQuizReport);
+router.get("/ai-report/:quizId", aiLimiter, analyticsController.generateAiQuizReport);
 
 module.exports = router;

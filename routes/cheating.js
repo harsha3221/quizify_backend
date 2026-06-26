@@ -2,10 +2,10 @@ const express = require("express");
 const router = express.Router();
 const cheatingController = require("../controllers/cheatingController");
 const { generateAiQuestion } = require("../controllers/aiQuestionController");
+const { aiLimiter } = require("../middleware/rateLimiter");
 
 
-
-router.post("/quiz/:quizId/ai-generate-question", generateAiQuestion);
+router.post("/quiz/:quizId/ai-generate-question", aiLimiter, generateAiQuestion);
 
 router.get("/cheating/logs/:quizId", cheatingController.getCheatingLogs);
 router.post("/report-cheating", cheatingController.reportCheating);
