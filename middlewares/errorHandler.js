@@ -6,7 +6,8 @@ const errorHandler = (err, req, res, next) => {
     console.error(`[Error] ${err.message || 'Unknown Error'}`);
 
     // Log the full stack trace in development
-    if (process.env.NODE_ENV !== 'production') {
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (!isProduction) {
         console.error(err.stack);
     }
 
@@ -17,10 +18,18 @@ const errorHandler = (err, req, res, next) => {
         ? statusCode
         : 500;
 
+    // Determine safe user-facing message
+    // If it's a 4xx error (validation/client fault), it's safe to send. 
+    // If it's a 5xx system error, only show the raw message in development mode.
+    let safeMessage = err.message || 'Internal Server Error';
+    if (isProduction && validStatusCode >= 500) {
+        safeMessage = 'An internal server error occurred. Please try again later.';
+    }
+
     res.status(validStatusCode).json({
         success: false,
-        message: err.message || 'Internal Server Error',
-        ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+        message: safeMessage,
+        ...(!isProduction && { stack: err.stack })
     });
 };
 
