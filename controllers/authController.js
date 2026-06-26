@@ -128,7 +128,7 @@ exports.resendVerification = async (req, res, next) => {
     const expiryMinutes = Number(process.env.TOKEN_EXPIRY_MINUTES) || 15;
     const expiryDate = new Date(Date.now() + expiryMinutes * 60 * 1000);
 
-    
+
     await User.updateVerificationToken(user.id, hashedToken, expiryDate);
 
     const verificationLink = `${process.env.BASE_URL}/verify?token=${rawToken}`;
@@ -195,7 +195,7 @@ exports.postLogin = async (req, res, next) => {
       };
     }
 
-    
+
     req.session.save((err) => {
       if (err) return next(err);
 
@@ -210,8 +210,26 @@ exports.postLogin = async (req, res, next) => {
 };
 
 exports.logout = (req, res, next) => {
-  req.session.destroy(() => {
-    res.clearCookie("connect.sid");
-    res.status(200).json({ message: "Logged out successfully" });
+  if (!req.session) {
+    return res.status(200).json({ message: "Logged out successfully" });
+  }
+
+  // Enforce explicit session cleanup on the database/memory engine
+  req.session.destroy((err) => {
+    if (err) {
+      console.error("Session destruction error during logout:", err);
+      return res.status(500).json({ message: "Failed to invalidate session safely." });
+    }
+
+    // Force client browser to completely clear the tracking identifier
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.clearCookie("connect.sid", {
+      path: "/",
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax'
+    });
+
+    return res.status(200).json({ message: "Logged out successfully" });
   });
 };
