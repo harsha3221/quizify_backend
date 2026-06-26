@@ -57,11 +57,11 @@ Make sure the JSON has exactly ${parsedOptions} options, with exactly ${parsedCo
             headers: {
                 "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
                 "Content-Type": "application/json",
-                "HTTP-Referer": process.env.APP_URL || "http://localhost:3000", // your site URL
+                "HTTP-Referer": process.env.APP_URL || "http://localhost:3000",
                 "X-Title": "Quiz App",
             },
             body: JSON.stringify({
-                model: "openrouter/free", // free model
+                model: "openrouter/free",
                 messages: [
                     {
                         role: "user",
@@ -73,7 +73,7 @@ Make sure the JSON has exactly ${parsedOptions} options, with exactly ${parsedCo
         });
 
         if (!response.ok) {
-            const errData = await response.json();
+            const errData = await response.json().catch(() => ({}));
             console.error("OpenRouter error:", errData);
             return res.status(502).json({ message: "AI service error. Please try again." });
         }
@@ -81,17 +81,23 @@ Make sure the JSON has exactly ${parsedOptions} options, with exactly ${parsedCo
         const data = await response.json();
         const rawText = data.choices?.[0]?.message?.content || "";
 
-        // Strip any accidental markdown fences
+        // Strip accidental backticks and extract pure JSON boundaries
         const cleaned = rawText
             .replace(/```json/gi, "")
             .replace(/```/g, "")
             .trim();
 
+        const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+            console.error("No JSON block found inside response:", rawText);
+            return res.status(502).json({ message: "AI returned an invalid text format. Please try again." });
+        }
+
         let parsed;
         try {
-            parsed = JSON.parse(cleaned);
+            parsed = JSON.parse(jsonMatch[0]);
         } catch {
-            console.error("AI returned non-JSON:", rawText);
+            console.error("AI returned non-JSON structure:", rawText);
             return res.status(502).json({ message: "AI returned an invalid response. Please try again." });
         }
 

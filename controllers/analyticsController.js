@@ -231,16 +231,15 @@ Rules:
             }
         );
 
-        const rawText = await aiResponse.text();
-
         if (!aiResponse.ok) {
-            console.error("OpenRouter error:", rawText);
+            const rawErr = await aiResponse.text().catch(() => "");
+            console.error("OpenRouter error response text:", rawErr);
             return res
                 .status(502)
                 .json({ message: "AI service error. Please try again." });
         }
 
-        const aiData = JSON.parse(rawText);
+        const aiData = await aiResponse.json();
         const aiText = aiData.choices?.[0]?.message?.content || "";
 
         const cleaned = aiText
@@ -250,7 +249,7 @@ Rules:
 
         const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
         if (!jsonMatch) {
-            console.error("No JSON in AI response:", aiText);
+            console.error("No valid JSON found in AI response text content:", aiText);
             return res.status(502).json({
                 message: "AI returned an invalid response. Please try again.",
             });
@@ -260,7 +259,7 @@ Rules:
         try {
             report = JSON.parse(jsonMatch[0]);
         } catch {
-            console.error("Failed to parse AI JSON:", jsonMatch[0]);
+            console.error("Failed to execute JSON.parse on AI snippet:", jsonMatch[0]);
             return res.status(502).json({
                 message: "AI returned malformed data. Please try again.",
             });
@@ -275,7 +274,7 @@ Rules:
                 average_pct: overallStats.average_pct,
                 total_marks: quiz.total_marks,
                 question_breakdown: questionAnalysis.map((q) => ({
-                    question: q.question_text.substring(0, 60) + "...",
+                    question: q.question_text.length > 60 ? q.question_text.substring(0, 60) + "..." : q.question_text,
                     correct_pct: q.correct_pct,
                     wrong_pct: q.wrong_pct,
                     skipped_pct: q.skipped_pct,
@@ -284,7 +283,7 @@ Rules:
             },
         });
     } catch (err) {
-        console.error("AI Report Error:", err);
+        console.error("AI Quiz Report Error Handler:", err);
         return res
             .status(500)
             .json({ message: "Server error. Please try again." });
@@ -292,6 +291,5 @@ Rules:
 };
 
 module.exports = {
-    // ...spread your existing exports here
     generateAiQuizReport,
 };
