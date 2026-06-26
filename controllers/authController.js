@@ -139,11 +139,12 @@ exports.resendVerification = async (req, res, next) => {
     });
 
   } catch (err) {
-    console.error("Resend verification error:", err);
-    return res.status(500).json({
-      message: err.message
-    });
-    next(err);
+    // 1. Log visually for developers on the server console (or use a production logger like Winston)
+    console.error("Resend verification process encountered an issue:", err.message);
+
+    // 2. Delegate the error cleanly to your centralized app error-handler middleware
+    // This stops execution here and prevents raw error leaks or double-response crashes
+    return next(err);
   }
 };
 
