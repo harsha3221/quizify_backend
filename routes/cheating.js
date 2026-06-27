@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const cheatingController = require("../controllers/cheatingController");
 const { generateAiQuestion } = require("../controllers/aiQuestionController");
-const { aiLimiter } = require("../middleware/rateLimiter");
+const { aiLimiter } = require("../middlewares/rateLimiter");
 
 
 router.post("/quiz/:quizId/ai-generate-question", aiLimiter, generateAiQuestion);

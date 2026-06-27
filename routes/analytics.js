@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const analyticsController = require("../controllers/analyticsController");
-const { aiLimiter } = require("../middleware/rateLimiter");
+const { aiLimiter } = require("../middlewares/rateLimiter");
 
 // This defines the path AFTER /analytics
 

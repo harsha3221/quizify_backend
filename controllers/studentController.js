@@ -141,17 +141,39 @@ exports.startQuizForStudent = async (req, res, next) => {
     const studentId = req.session.user.student_id;
     const quizId = req.params.quizId;
 
+    // 1. Ensure enrollment and fetch quiz master info
+    const { quiz } = await ensureStudentAndEnrollment(studentId, quizId);
+
+    // 2. Register or fetch the active attempt structure
     const { isNew, attempt } = await StudentQuizAttempt.findOrCreateAttemptAtomic(studentId, quizId);
 
+    // 3. Fetch questions belonging to this quiz
+    // (Ensure your Question model has getByQuizId or a student-safe query variant)
+    const rawQuestions = await Question.getByQuizId(quizId);
+
+    // 4. Parse option strings if stored as text JSON arrays in MySQL
+    let questions = rawQuestions.map(q => ({
+      ...q,
+      options: typeof q.options === 'string' ? JSON.parse(q.options) : (q.options || [])
+    }));
+
+    // 5. Optional: Shuffle questions or options here if desired for student integrity
+
+    // 6. Fetch existing student answers if they are resuming an active attempt
+    // const [existingAnswers] = await StudentAnswer.getStudentAnswersForQuiz(studentId, quizId);
+
+    // Return everything the React frontend needs to render the screen cleanly
     res.json({
       message: isNew ? "Quiz started successfully." : "Quiz session resumed.",
-      attempt
+      attempt,
+      quiz,
+      questions,
+      existingAnswers: [] // replace with actual database pull if saving state dynamically
     });
   } catch (err) {
     next(err);
   }
 };
-
 exports.saveStudentAnswer = async (req, res, next) => {
   try {
     if (!req.session.user || req.session.user.role !== 'student')
