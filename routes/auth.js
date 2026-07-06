@@ -14,5 +14,5 @@ router.post("/login", authLimiter, validateLogin, authController.postLogin);
 router.post("/logout", authController.logout);
 router.get("/verify", authController.verifyEmail);
 router.post("/resend-verification", authController.resendVerification);
-
+router.get('/verification-status', authController.getVerificationStatus);
 module.exports = router;

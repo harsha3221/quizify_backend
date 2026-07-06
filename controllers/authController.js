@@ -79,22 +79,48 @@ exports.verifyEmail = async (req, res, next) => {
     const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
     const [rows] = await User.findByVerificationToken(hashedToken);
 
-    // 1. Check if user exists
     if (rows.length === 0) {
-      return res.status(404).json({ message: "Invalid or expired token" });
+      return res.status(444).json({ message: "Invalid or expired token" });
     }
 
-
-    const expiryTime = new Date(rows[0].verification_token_expiry);
+    const user = rows[0];
+    const expiryTime = new Date(user.verification_token_expiry);
     if (expiryTime < new Date()) {
       return res.status(410).json({ message: "Token has expired" });
     }
 
+    // 1. Mutate state records in DB
+    await User.verifyUser(user.id);
 
-    await User.verifyUser(rows[0].id);
+    // 2. Establish session values immediately for this tab environment
+    req.session.isLoggedIn = true;
 
+    let activeUserPayload = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role
+    };
 
-    return res.status(200).json({ message: "Email verified successfully" });
+    if (user.role === "teacher") {
+      const [teacherRows] = await Teacher.findByUserId(user.id);
+      activeUserPayload.teacher_id = teacherRows[0]?.teacher_id;
+    } else {
+      const [studentRows] = await Student.findByUserId(user.id);
+      activeUserPayload.student_id = studentRows[0]?.student_id;
+    }
+
+    req.session.user = activeUserPayload;
+
+    return req.session.save((err) => {
+      if (err) return next(err);
+
+      return res.status(200).json({
+        message: "Email verified successfully",
+        user: req.session.user,
+        csrfToken: req.csrfToken ? req.csrfToken() : null
+      });
+    });
 
   } catch (err) {
     next(err);
@@ -233,4 +259,61 @@ exports.logout = (req, res, next) => {
 
     return res.status(200).json({ message: "Logged out successfully" });
   });
+};
+// Add this to your auth controller file
+exports.getVerificationStatus = async (req, res, next) => {
+  try {
+    const { email } = req.query;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email parameter is required" });
+    }
+
+    const [rows] = await User.findEmail(email);
+    if (rows.length === 0) {
+      return res.status(444).json({ message: "No trackable account context found" });
+    }
+
+    const user = rows[0];
+
+    // If verified, generate the session immediately so the polling tab auto-logs in!
+    if (user.is_verified) {
+      req.session.isLoggedIn = true;
+
+      if (user.role === "teacher") {
+        const [teacherRows] = await Teacher.findByUserId(user.id);
+        req.session.user = {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          teacher_id: teacherRows[0]?.teacher_id,
+        };
+      } else {
+        const [studentRows] = await Student.findByUserId(user.id);
+        req.session.user = {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          student_id: studentRows[0]?.student_id,
+        };
+      }
+
+      return req.session.save((err) => {
+        if (err) return next(err);
+        return res.status(200).json({
+          isVerified: true,
+          user: req.session.user,
+          csrfToken: req.csrfToken ? req.csrfToken() : null // Generates a fresh anti-forgery layer token if using standard csurf
+        });
+      });
+    }
+
+    // Still unverified
+    return res.status(200).json({ isVerified: false });
+
+  } catch (err) {
+    next(err);
+  }
 };
